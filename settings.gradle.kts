@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "PixlrHomeTask"
 include(":app")
+include(":domain")
  
