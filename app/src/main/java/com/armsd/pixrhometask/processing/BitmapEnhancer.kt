@@ -9,6 +9,8 @@ import android.graphics.Paint
 import com.armsd.pixrhometask.domain.ImageProcessor
 import com.armsd.pixrhometask.domain.ProcessingParams
 import androidx.core.graphics.createBitmap
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 class BitmapEnhancer : ImageProcessor {
 
@@ -54,7 +56,7 @@ class BitmapEnhancer : ImageProcessor {
     }
 
     // getPixels/setPixels in bulk — reduces overhead from repeated JNI crossings.
-    private fun applySharpen(src: Bitmap, amount: Float): Bitmap {
+    private suspend fun applySharpen(src: Bitmap, amount: Float): Bitmap {
         val w = src.width
         val h = src.height
         val srcPixels = IntArray(w * h)
@@ -62,6 +64,7 @@ class BitmapEnhancer : ImageProcessor {
         val dstPixels = IntArray(w * h)
 
         for (y in 0 until h) {
+            currentCoroutineContext().ensureActive()
             for (x in 0 until w) {
                 val center = srcPixels[y * w + x]
                 val top    = srcPixels[y.dec().coerceAtLeast(0) * w + x]

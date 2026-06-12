@@ -10,6 +10,7 @@ import com.armsd.pixrhometask.domain.ImageProcessor
 import com.armsd.pixrhometask.processing.BitmapEnhancer
 import com.armsd.pixrhometask.domain.ProcessingParams
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +77,7 @@ class EnhancementViewModel(
             _uiState.update { it.copy(isProcessing = true) }
             val result = withContext(Dispatchers.Default) {
                 runCatching { processor.process(source, _uiState.value.params) }
+                    .onFailure { if (it is CancellationException) throw it }
             }
             _uiState.update {
                 it.copy(

@@ -85,7 +85,7 @@ The sharpened result is blended back with the input by the `sharpness` factor, s
 
 ### State management
 
-A single `StateFlow<EnhancementUiState>` in the ViewModel is the only source of truth. Each param change calls `triggerProcessing()`, which cancels the in-flight coroutine job before starting a new one. Rapid slider movement never queues up stale work — the latest params always win without needing a debounce.
+A single `StateFlow<EnhancementUiState>` in the ViewModel is the only source of truth. Each param change calls `triggerProcessing()`, which cancels the in-flight coroutine job before starting a new one. The sharpening loop checks `coroutineContext.ensureActive()` on each row, so cancellation actually stops the CPU work rather than just suppressing the result. Rapid slider movement never queues up stale work — the latest params always win without needing a debounce.
 
 ### Dispatcher split
 
