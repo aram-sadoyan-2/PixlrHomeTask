@@ -60,7 +60,18 @@ The sharpened result is blended back with the input by the `sharpness` factor, s
 
 ---
 
-## 4. Architecture
+## 4. Large image and memory handling
+
+The app avoids processing very large source images directly in the interactive preview flow.
+When the user selects an image, it is decoded into a bounded preview bitmap before processing. The enhancement pipeline runs on this preview bitmap, which keeps memory usage predictable and helps avoid UI freezes or OutOfMemoryError on large photos and panoramas.
+
+Decoding is done in two passes: the first reads only the image dimensions (zero pixel allocation), and the second decodes with a power-of-two `inSampleSize` so the raw bitmap never exceeds 2048 px on its long edge. A precise scale to 1024 px follows on `Dispatchers.Default`. The intermediate decoded bitmap is recycled immediately after scaling.
+
+For production, full-resolution export would be implemented as a separate step, ideally using tiled/chunked processing for very large images.
+
+---
+
+## 5. Architecture
 
 ```
 :domain  (Android library)
@@ -104,7 +115,7 @@ Labels ("Before" / "After") are regular Compose `Text` composables overlaid in a
 
 ---
 
-## 5. Libraries used
+## 6. Libraries used
 
 | Library | Why |
 |---|---|
@@ -116,7 +127,7 @@ No third-party image-processing library was used. Adding OpenCV would be appropr
 
 ---
 
-## 6. Trade-offs made in the timebox
+## 7. Trade-offs made in the timebox
 
 - **No debounce on sliders.** Rapid drags cancel-and-restart processing. A 150 ms debounce would reduce wasted CPU cycles but adds complexity. At 1024 px this keeps the implementation simple while still feeling responsive for a prototype.
 - **ColorMatrix chaining instead of a proper ICC pipeline.** The brightness + contrast combo behaves reasonably but doesn't account for perceptual gamma. A production tool would apply gamma-aware transforms.
@@ -126,7 +137,7 @@ No third-party image-processing library was used. Adding OpenCV would be appropr
 
 ---
 
-## 7. What I would improve for production
+## 8. What I would improve for production
 
 1. **GPU-accelerated processing** via AGSL (Android 13+) or `RenderEffect`. Convolution on a shader can be significantly faster and unlock real-time preview at higher resolutions.
 2. **Debounce** slider changes (150–200 ms) to avoid churning on quick drags.
@@ -139,7 +150,7 @@ No third-party image-processing library was used. Adding OpenCV would be appropr
 
 ---
 
-## 8. Known limitations
+## 9. Known limitations
 
 - The sharpening convolution is O(w × h) on `Dispatchers.Default`. For images larger than 1024 px this can take several seconds on low-end devices.
 - Very high contrast values (> 2.0) combined with high brightness cause channel clipping — expected behavior of the linear ColorMatrix model.

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.core.graphics.scale
+import kotlin.math.max
 
 class EnhancementViewModel(
     private val processor: ImageProcessor = BitmapEnhancer(),
@@ -31,16 +32,22 @@ class EnhancementViewModel(
 
     fun loadUri(uri: Uri, contentResolver: ContentResolver) {
         viewModelScope.launch {
-            val raw = withContext(Dispatchers.IO) {
-                runCatching {
-                    contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-                }.getOrNull()
+            val decoded = withContext(Dispatchers.IO) {
+                try {
+                    decodeSampledBitmap(contentResolver, uri, MAX_DECODE_PX)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
             }
-            if (raw == null) {
+            if (decoded == null) {
                 _uiState.update { it.copy(errorMessage = "Failed to load image") }
                 return@launch
             }
-            val scaled = withContext(Dispatchers.Default) { scaleToBounds(raw, MAX_DISPLAY_PX) }
+            val scaled = withContext(Dispatchers.Default) { scaleToBounds(decoded, MAX_DISPLAY_PX) }
+            if (scaled !== decoded) decoded.recycle()
+
             _uiState.update {
                 it.copy(sourceBitmap = scaled, processedBitmap = null, errorMessage = null)
             }
@@ -71,12 +78,13 @@ class EnhancementViewModel(
 
     private fun triggerProcessing() {
         val source = _uiState.value.sourceBitmap ?: return
+        val params = _uiState.value.params
 
         processingJob?.cancel()
         processingJob = viewModelScope.launch {
             _uiState.update { it.copy(isProcessing = true) }
             val result = withContext(Dispatchers.Default) {
-                runCatching { processor.process(source, _uiState.value.params) }
+                runCatching { processor.process(source, params) }
                     .onFailure { if (it is CancellationException) throw it }
             }
             _uiState.update {
@@ -90,7 +98,10 @@ class EnhancementViewModel(
     }
 
     companion object {
+        // The app processes a bounded preview bitmap instead of the full-resolution source image.
+        // This keeps memory usage predictable for large camera photos and panoramas.
         private const val MAX_DISPLAY_PX = 1024
+        private const val MAX_DECODE_PX = MAX_DISPLAY_PX * 2  // 2048
 
         private fun scaleToBounds(src: Bitmap, maxPx: Int): Bitmap {
             val w = src.width
@@ -98,6 +109,35 @@ class EnhancementViewModel(
             if (w <= maxPx && h <= maxPx) return src
             val scale = maxPx.toFloat() / maxOf(w, h)
             return src.scale((w * scale).toInt(), (h * scale).toInt())
+        }
+
+        private fun decodeSampledBitmap(
+            contentResolver: ContentResolver,
+            uri: Uri,
+            maxPx: Int,
+        ): Bitmap? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, bounds)
+            }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            val opts = BitmapFactory.Options().apply {
+                inSampleSize = calculateInSampleSize(bounds, maxPx)
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            return contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, opts)
+            }
+        }
+
+        private fun calculateInSampleSize(opts: BitmapFactory.Options, maxPx: Int): Int {
+            val rawLong = max(opts.outWidth, opts.outHeight)
+            if (rawLong <= 0 || maxPx <= 0) return 1
+            var sampleSize = 1
+            while (rawLong / sampleSize > maxPx) {
+                sampleSize *= 2
+            }
+            return sampleSize
         }
     }
 }
